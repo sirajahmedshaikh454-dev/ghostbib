@@ -8,6 +8,7 @@
   const stem = (w) => (w.length > 3 ? w.replace(/ies$/, 'y').replace(/([^s])s$/, '$1') : w);       // networks->network, images->image, studies->study
   const content = (s) => words(s).filter((w) => !STOP.has(w) && w.length > 1).map(stem);
 
+  const NOISE = new Set('pp vol no et al proceedings journal conference ieee acm in eds ed edition press new york'.split(' '));
   const DOI_RE = /\b(10\.\d{4,9}\/[^\s"<>]+)/i;
   const URL_RE = /https?:\/\/\S+/gi;
   const cleanDoi = (d) => d.replace(/[.,;:)\]}>]+$/, '');
@@ -35,10 +36,13 @@
   }
 
   const STARTS = /^\s*(?:\[\d+\]|\d{1,3}[.)]\s|•|-\s)/;
-  const AUTHORISH = /^[A-ZÀ-Þ][\w'’\-À-ſ]+,\s+(?:[A-Z]\.|[A-Z][a-z]+)/;
+  const AUTHORISH = /^(?:(?:van|von|de|del|della|la|le|der|den|di|da|dos|bin|al|el)\s+)*\p{Lu}[\p{L}'’\-]+(?:,\s+(?:\p{Lu}\.|\p{Lu}\p{Ll}+)|\s+\p{Lu}{1,3}[,.])/u;
+  const URL_ONLY = /^\s*(?:https?:\/\/\S+|doi:\s*\S+)\s*$/i;
+  const HEADING = /^\s*(?:references?(?: and notes)?|bibliography|works cited|reference list|literature cited)\b/i;
 
   function parseReferences(text) {
     text = String(text || '').replace(/\r\n?/g, '\n').trim();
+    if (HEADING.test(text.split('\n')[0]) && text.split('\n')[0].length < 40) text = text.split('\n').slice(1).join('\n').trim();
     if (!text) return [];
     if (/@\w+\s*\{/.test(text)) { const b = parseBibtex(text); if (b.length) return b; }
     const chunks = [];
@@ -49,13 +53,13 @@
       let cur = '';
       for (const line of text.split('\n')) {
         if (!line.trim()) continue;
-        const startsNew = STARTS.test(line) || (cur && /\b(19|20)\d{2}\b/.test(cur) && AUTHORISH.test(line.trim()));
+        const startsNew = STARTS.test(line) || (cur && /\b(19|20)\d{2}\b/.test(cur) && AUTHORISH.test(line.trim())) || (cur && URL_ONLY.test(line) && URL_ONLY.test(cur));
         if (cur && startsNew) { chunks.push(cur); cur = ''; }
         cur += (cur ? ' ' : '') + line.trim();
       }
       if (cur) chunks.push(cur);
     }
-    return chunks.map((c) => makeRef(c.replace(STARTS, ''))).filter((r) => r.raw.length >= 15);
+    return chunks.map((c) => makeRef(c.replace(STARTS, ''))).filter((r) => r.raw.length >= 15 && !(HEADING.test(r.raw) && r.raw.length < 40));
   }
 
   // ---- comparing one reference with one Crossref record --------------------------------------------------------
@@ -81,11 +85,27 @@
     const year = !years.length || !y ? 'none' : years.includes(y) ? 'ok' : years.some((x) => Math.abs(x - y) === 1) ? 'near' : 'bad';
     const venueTokens = content((cand['container-title'] && cand['container-title'][0]) || '');
     const venue = venueTokens.length ? (venueTokens.filter((w) => refWords.has(w)).length / venueTokens.length >= 0.5 ? 'ok' : 'unclear') : 'none';
-    const strong = cov >= 0.9 || exact;
+    // A real title with words added ("Squeeze-and-excitation networks FOR GRAPH QUANTUM CHEMISTRY") must not verify: count the words of the
+    // best-matching sentence of the reference that the record's title, venue and authors do not explain.
+    let extras = [];
+    if (tt.length) {
+      const known = new Set([...tt, ...venueTokens, ...fams.flatMap((f) => f.split(/[^a-z0-9]+/)), ...(cand.author || []).map((a) => norm(a.given || '')).flatMap((g) => g.split(/[^a-z0-9]+/))]);
+      let bestSeg = null;
+      for (const seg of text.split(/(?<=[.?!])\s+|["\u201C\u201D]/)) {
+        const sw = content(seg), hit = sw.filter((w) => tt.includes(w)).length;
+        if (hit && (!bestSeg || hit > bestSeg.hit || (hit === bestSeg.hit && sw.length < bestSeg.sw.length))) bestSeg = { sw, hit };
+      }
+      if (bestSeg) extras = bestSeg.sw.filter((w) => !known.has(w) && !/^\d+$/.test(w) && !NOISE.has(w));
+    }
+    const padded = extras.length >= Math.max(2, Math.ceil(tt.length / 2));
+    const strong = (cov >= 0.9 || exact) && !padded;
     const reasons = [];
     let verdict;
     if (strong && firstOk && year !== 'bad') verdict = 'verified';
-    else if (strong && firstOk) {
+    else if (padded && firstOk && year !== 'bad') {
+      verdict = 'title';
+      reasons.push(`Your title has extra words the real title lacks (${extras.slice(0, 4).join(', ')}). The real title is "${title}".`);
+    } else if (strong && firstOk) {
       // title and authors agree, only the year does: a typo, or a preprint / republication with a different date
       verdict = 'year';
       reasons.push(`Title and authors match, but the record is dated ${y}, not ${years.join(' / ')}. Check for a typo; a preprint or later republication can legitimately carry another year.`);
@@ -131,17 +151,19 @@
       return Object.assign({ raw: ref.raw }, ev);
     }
     const q = ref.raw.replace(URL_RE, ' ').replace(/\s+/g, ' ').slice(0, 300);
-    const r = await get(getJson, `${API}?query.bibliographic=${encodeURIComponent(q)}&rows=5&select=${FIELDS}`, retryMs);
+    const r = await get(getJson, `${API}?query.bibliographic=${encodeURIComponent(q)}&rows=15&select=${FIELDS}`, retryMs);
     if (!r.ok) return { raw: ref.raw, verdict: 'error', reasons: ['Could not reach Crossref for this reference.'], fields: {}, match: null };
     const items = (r.json.message && r.json.message.items) || [];
     if (!items.length) return { raw: ref.raw, verdict: 'notfound', reasons: ['Crossref returned nothing.'], fields: {}, match: null };
     let best = null;
-    for (const it of items) { const ev = evaluate(ref, it); if (!best || ev.score > best.score) best = ev; }
+    const wantsErratum = /correction|erratum|corrigendum|retraction|addendum/i.test(ref.raw);
+    for (const it of items) {
+      if (!wantsErratum && /^(?:publisher |author )?(?:correction|erratum|corrigendum|retraction|addendum)\b/i.test((it.title && it.title[0]) || '')) continue; const ev = evaluate(ref, it); if (!best || ev.score > best.score) best = ev; }
     if (best.verdict === 'notfound') best.reasons = ['No record matches this title. It may be invented, or it may be a book, thesis, report or web page that Crossref does not index.'];
     return Object.assign({ raw: ref.raw }, best);
   }
 
-  const LABELS = { verified: 'Verified', probable: 'Probable match', differs: 'Authors differ', year: 'Year differs', doi_other: 'DOI is a different paper', doi_missing: 'DOI does not exist', notfound: 'Not found', error: 'Could not check' };
+  const LABELS = { verified: 'Verified', probable: 'Probable match', differs: 'Authors differ', title: 'Title differs', year: 'Year differs', doi_other: 'DOI is a different paper', doi_missing: 'DOI does not exist', notfound: 'Not found', error: 'Could not check' };
   const api = { parseReferences, evaluate, check, LABELS, words, content };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Ghostbib = api;

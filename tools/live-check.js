@@ -8,7 +8,7 @@ async function getJson(url) {
   } catch { return { ok: false, status: 0, json: null }; }
 }
 
-// [expected verdicts (any of), reference text]
+// [expected verdicts (any of), reference text]. The Lander case is a known limit: the paper is credited to a consortium, so it may show 'notfound'.
 const CASES = [
   [['verified'], 'LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature, 521(7553), 436-444.'],
   [['verified'], 'Hochreiter, S., & Schmidhuber, J. (1997). Long short-term memory. Neural Computation, 9(8), 1735-1780.'],
@@ -21,6 +21,9 @@ const CASES = [
   [['year'], 'LeCun, Y., Bengio, Y., & Hinton, G. (2009). Deep learning. Nature, 521(7553), 436-444.'],
   [['doi_missing'], 'Smith, J. (2020). A made up paper about models. Journal of Things. https://doi.org/10.1038/nature99999999'],
   [['doi_other'], 'LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature. https://doi.org/10.1109/cvpr.2016.90'],
+  [['verified'], 'Hu, J., Shen, L., & Sun, G. (2018). Squeeze-and-excitation networks. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (pp. 7132-7141).'],
+  [['title'], 'Hu, J., Shen, L., & Sun, G. (2018). Squeeze-and-excitation networks for graph quantum chemistry. CVPR.'],
+  [['verified', 'probable', 'notfound'], 'Lander ES, Linton LM, Birren B, Nusbaum C, Zody MC, Baldwin J, et al. Initial sequencing and analysis of the human genome. Nature. 2001;409(6822):860-921.'],
 ];
 
 (async () => {

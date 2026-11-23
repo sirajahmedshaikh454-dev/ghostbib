@@ -105,3 +105,43 @@ test('check: empty result list is not found', async () => {
   const r = await check(ref('Smith, J. (2020). A title long enough here. Journal.'), async () => json({ message: { items: [] } }));
   assert.strictEqual(r.verdict, 'notfound');
 });
+
+// ---- found by an independent review against the live API ----
+const SENET = rec('Squeeze-and-Excitation Networks', ['Hu', 'Shen', 'Sun'], 2018, 'IEEE Conference on Computer Vision and Pattern Recognition');
+test('a real title with invented words added does not verify', () => {
+  const ev = evaluate(ref('Hu, J., Shen, L., & Sun, G. (2018). Squeeze-and-excitation networks for graph quantum chemistry. CVPR.'), SENET);
+  assert.strictEqual(ev.verdict, 'title');
+  assert.match(ev.reasons.join(' '), /extra words/);
+});
+test('a real title followed by its venue still verifies', () => {
+  assert.strictEqual(evaluate(ref('Hu, J., Shen, L., & Sun, G. (2018). Squeeze-and-excitation networks. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (pp. 7132-7141).'), SENET).verdict, 'verified');
+  assert.strictEqual(evaluate(ref('J. Hu, L. Shen and G. Sun, Squeeze-and-excitation networks, in CVPR, 2018.'), SENET).verdict, 'verified');
+});
+test('a short real title padded out is caught', () => {
+  const dl = rec('Deep learning', ['LeCun', 'Bengio', 'Hinton'], 2015, 'Nature');
+  assert.strictEqual(evaluate(ref('LeCun, Y. (2015). Deep learning for brain tumour segmentation. Nature.'), dl).verdict, 'title');
+  assert.strictEqual(evaluate(ref('LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature, 521, 436-444.'), dl).verdict, 'verified');
+});
+test('errata are skipped and more candidates are examined', async () => {
+  const real = rec('Initial sequencing and analysis of the human genome', ['Lander'], 2001, 'Nature');
+  const erratum = rec('Correction: Initial sequencing and analysis of the human genome', ['Lander'], 2001, 'Nature');
+  let url = '';
+  const r = await check(ref('Lander ES, Linton LM, et al. Initial sequencing and analysis of the human genome. Nature. 2001;409:860-921.'), async (u) => { url = u; return json({ message: { items: [erratum, real] } }); });
+  assert.strictEqual(r.verdict, 'verified');
+  assert.match(url, /rows=15/);
+});
+test('parsing: Vancouver lines without blank lines or numbers', () => {
+  const r = parseReferences('Esteva A, Kuprel B, et al. Dermatologist-level classification. Nature. 2017;542:115-8.\nGulshan V, Peng L, et al. Development and validation of a deep learning algorithm. JAMA. 2016;316:2402-10.\nLander ES, Linton LM, et al. Initial sequencing and analysis of the human genome. Nature. 2001;409:860-921.');
+  assert.strictEqual(r.length, 3);
+});
+test('parsing: surname particles and non-ASCII capitals start a new reference', () => {
+  const r = parseReferences('Smith, J. (2010). A reasonably long title here. Journal.\nvan der Berg, A. (2011). Another reasonably long title. Journal.\nde la Cruz, M. (2012). Yet another long title here. Journal.\n\u00C5kesson, B. (2013). A fourth long title here. Journal.\n\u0141ukasiewicz, J. (2013). A fifth long title here. Journal.');
+  assert.strictEqual(r.length, 5);
+});
+test('parsing: a References heading is dropped', () => {
+  assert.strictEqual(parseReferences('References\nLeCun, Y., Bengio, Y. (2015). Deep learning. Nature.\nBreiman, L. (2001). Random forests. Machine Learning.').length, 2);
+  assert.strictEqual(parseReferences('Smith, J. (2010). A reasonably long title here. Journal.\n\nReferences and Notes\n\nDoe, J. (2011). Another reasonably long title. Journal.').length, 2);
+});
+test('parsing: consecutive bare URLs are separate references', () => {
+  assert.strictEqual(parseReferences('https://doi.org/10.1038/nature14539\nhttps://www.nature.com/articles/nature14539').length, 2);
+});

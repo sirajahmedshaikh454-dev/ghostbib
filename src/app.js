@@ -16,7 +16,7 @@
   let running = false, cancel = false;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const CLS = { verified: 'good', probable: 'good', year: 'warn', differs: 'bad', doi_other: 'bad', doi_missing: 'bad', notfound: 'nf', error: 'grey' };
+  const CLS = { verified: 'good', probable: 'good', year: 'warn', title: 'warn', differs: 'bad', doi_other: 'bad', doi_missing: 'bad', notfound: 'nf', error: 'grey' };
   const FIELD_WORD = { ok: 'matches', partial: 'partly', bad: 'differs', near: 'off by 1', unclear: 'unclear', none: 'n/a' };
 
   async function getJson(url) {
@@ -59,7 +59,7 @@
     out.textContent = '';
     if (!results.length) return;
     const count = (...v) => results.filter((r) => v.includes(r.verdict)).length;
-    const groups = [['good', 'verified', count('verified', 'probable')], ['warn', 'year differs', count('year')], ['bad', 'authors or DOI wrong', count('differs', 'doi_other', 'doi_missing')], ['nf', 'not found', count('notfound')], ['grey', 'could not check', count('error')]];
+    const groups = [['good', 'verified', count('verified', 'probable')], ['warn', 'year or title differs', count('year', 'title')], ['bad', 'authors or DOI wrong', count('differs', 'doi_other', 'doi_missing')], ['nf', 'not found', count('notfound')], ['grey', 'could not check', count('error')]];
     const problems = results.length - count('verified', 'probable');
     out.appendChild(el('p', 'verdict', done < total ? `Checking... ${done} of ${total}` : problems ? `${problems} of ${total} references need a look.` : `All ${total} references match a real record.`));
     const chips = el('div', 'summary');
