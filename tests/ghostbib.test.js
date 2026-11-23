@@ -41,9 +41,14 @@ test('the Frankenstein fake: real title, wrong authors', () => {
   assert.strictEqual(ev.fields.authors, 'bad');
   assert.match(ev.reasons.join(' '), /first author/);
 });
+test('wrong authors AND wrong year says both', () => {
+  const ev = evaluate(ref('Patel, R. (2012). Deep residual learning for image recognition. CVPR.'), RESNET);
+  assert.strictEqual(ev.verdict, 'differs');
+  assert.match(ev.reasons.join(' '), /2016/);
+});
 test('real title and authors, wrong year', () => {
   const ev = evaluate(ref('He, K., Zhang, X. (2019). Deep residual learning for image recognition. CVPR.'), RESNET);
-  assert.strictEqual(ev.verdict, 'differs');
+  assert.strictEqual(ev.verdict, 'year');
   assert.match(ev.reasons.join(' '), /2016/);
 });
 test('off by one year stays verified with a note', () => {
@@ -81,8 +86,20 @@ test('check by search: picks the best of several candidates', async () => {
   assert.ok(!/mailto/.test(url));
 });
 test('check: network failure is "could not check", never "not found"', async () => {
-  const r = await check(ref('Smith, J. (2020). A title long enough here. Journal.'), async () => ({ ok: false, status: 0, json: null }));
+  let calls = 0;
+  const r = await check(ref('Smith, J. (2020). A title long enough here. Journal.'), async () => { calls++; return { ok: false, status: 0, json: null }; }, { retryMs: 1 });
   assert.strictEqual(r.verdict, 'error');
+  assert.strictEqual(calls, 3);
+});
+test('check: a transient failure is retried and then succeeds', async () => {
+  let n = 0;
+  const r = await check(ref('He, K., Zhang, X. (2016). Deep residual learning for image recognition. CVPR.'), async () => (++n < 2 ? { ok: false, status: 429, json: null } : json({ message: { items: [RESNET] } })), { retryMs: 1 });
+  assert.strictEqual(r.verdict, 'verified');
+});
+test('check: a 404 is not retried', async () => {
+  let n = 0;
+  await check({ raw: 'x', doi: '10.1/none' }, async () => { n++; return json({}, 404); }, { retryMs: 1 });
+  assert.strictEqual(n, 1);
 });
 test('check: empty result list is not found', async () => {
   const r = await check(ref('Smith, J. (2020). A title long enough here. Journal.'), async () => json({ message: { items: [] } }));

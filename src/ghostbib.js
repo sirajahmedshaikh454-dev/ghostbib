@@ -85,10 +85,14 @@
     const reasons = [];
     let verdict;
     if (strong && firstOk && year !== 'bad') verdict = 'verified';
-    else if (strong) {
+    else if (strong && firstOk) {
+      // title and authors agree, only the year does: a typo, or a preprint / republication with a different date
+      verdict = 'year';
+      reasons.push(`Title and authors match, but the record is dated ${y}, not ${years.join(' / ')}. Check for a typo; a preprint or later republication can legitimately carry another year.`);
+    } else if (strong) {
       verdict = 'differs';
-      if (!firstOk) reasons.push('The first author in your reference is not an author of the paper with this title.');
-      if (year === 'bad') reasons.push(`The paper with this title was published in ${y}, not ${years.join(' / ')}.`);
+      reasons.push('The first author in your reference is not an author of the paper with this title.');
+      if (year === 'bad') reasons.push(`The paper with this title is dated ${y}, not ${years.join(' / ')}.`);
     } else if (cov >= 0.65 && firstOk && year !== 'bad') verdict = 'probable';
     else verdict = 'notfound';
     if (verdict === 'verified' && year === 'near') reasons.push(`Year differs by one (record says ${y}): online and print dates often differ.`);
@@ -105,9 +109,21 @@
   const FIELDS = 'title,author,issued,published,DOI,container-title';
   const doiPath = (d) => d.split('/').map(encodeURIComponent).join('/');
 
-  async function check(ref, getJson) {
+  // Retry rate limits and network blips; a 404 is a real answer and is not retried.
+  async function get(getJson, url, retryMs) {
+    let r;
+    for (let i = 0; i < 3; i++) {
+      r = await getJson(url);
+      if (r.ok || r.status === 404) return r;
+      await new Promise((res) => setTimeout(res, retryMs * (i + 1)));
+    }
+    return r;
+  }
+
+  async function check(ref, getJson, opts) {
+    const retryMs = opts && opts.retryMs != null ? opts.retryMs : 700;
     if (ref.doi) {
-      const r = await getJson(`${API}/${doiPath(ref.doi)}`);
+      const r = await get(getJson, `${API}/${doiPath(ref.doi)}`, retryMs);
       if (r.status === 404) return { raw: ref.raw, verdict: 'doi_missing', reasons: [`The DOI ${ref.doi} does not exist.`], fields: {}, match: null };
       if (!r.ok) return { raw: ref.raw, verdict: 'error', reasons: ['Could not reach Crossref for this reference.'], fields: {}, match: null };
       const ev = evaluate(ref, r.json.message);
@@ -115,7 +131,7 @@
       return Object.assign({ raw: ref.raw }, ev);
     }
     const q = ref.raw.replace(URL_RE, ' ').replace(/\s+/g, ' ').slice(0, 300);
-    const r = await getJson(`${API}?query.bibliographic=${encodeURIComponent(q)}&rows=5&select=${FIELDS}`);
+    const r = await get(getJson, `${API}?query.bibliographic=${encodeURIComponent(q)}&rows=5&select=${FIELDS}`, retryMs);
     if (!r.ok) return { raw: ref.raw, verdict: 'error', reasons: ['Could not reach Crossref for this reference.'], fields: {}, match: null };
     const items = (r.json.message && r.json.message.items) || [];
     if (!items.length) return { raw: ref.raw, verdict: 'notfound', reasons: ['Crossref returned nothing.'], fields: {}, match: null };
@@ -125,7 +141,7 @@
     return Object.assign({ raw: ref.raw }, best);
   }
 
-  const LABELS = { verified: 'Verified', probable: 'Probable match', differs: 'Details differ', doi_other: 'DOI is a different paper', doi_missing: 'DOI does not exist', notfound: 'Not found', error: 'Could not check' };
+  const LABELS = { verified: 'Verified', probable: 'Probable match', differs: 'Authors differ', year: 'Year differs', doi_other: 'DOI is a different paper', doi_missing: 'DOI does not exist', notfound: 'Not found', error: 'Could not check' };
   const api = { parseReferences, evaluate, check, LABELS, words, content };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Ghostbib = api;
