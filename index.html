@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghostbib</title>
+<meta name="description" content="Paste a reference list. Ghostbib checks every reference against Crossref and shows which fields (title, authors, year, DOI) match a real paper.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234a3f8f'/%3E%3Cpath d='M9 24V13a7 7 0 0 1 14 0v11l-3.5-2.5L16 24l-3.5-2.5z' fill='white'/%3E%3Ccircle cx='13.2' cy='13' r='1.6' fill='%234a3f8f'/%3E%3Ccircle cx='18.8' cy='13' r='1.6' fill='%234a3f8f'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f6f4f0; --card:#fffefc; --ink:#201e2b; --mute:#615e70; --line:#ddd9d0; --accent:#4a3f8f; --accent-ink:#fff;
+  --good:#1d6b4f; --good-bg:#e1f1ea; --warn:#8a5a00; --warn-bg:#fbefd2; --bad:#a3301f; --bad-bg:#f8e2dc; --nf:#5b3a8a; --nf-bg:#ece4f6; --grey:#66686e; --grey-bg:#ececea;
+  --code:#efece6; --radius:12px; --shadow:0 1px 2px rgba(32,30,43,.06),0 6px 20px rgba(32,30,43,.05);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#15141c; --card:#1d1c27; --ink:#ebe9f3; --mute:#a09db2; --line:#2e2c3c; --accent:#a99cf5; --accent-ink:#17142b;
+  --good:#6fd3a8; --good-bg:#17302a; --warn:#f2c35b; --warn-bg:#3a2f12; --bad:#ff9d8a; --bad-bg:#3b1f1b; --nf:#c9a8f5; --nf-bg:#2c2040; --grey:#a8aab1; --grey-bg:#26262d; --code:#13121a; --shadow:none;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+.wrap{max-width:960px;margin:0 auto;padding:28px 16px 72px}
+h1{font:700 1.9rem/1.1 Georgia,"Times New Roman",serif;margin:0 0 6px;letter-spacing:-.01em}
+.tag{color:var(--mute);margin:0 0 14px;max-width:62ch}
+.priv{display:inline-block;font-size:.85rem;color:var(--mute);border:1px solid var(--line);border-radius:999px;padding:3px 12px;margin-bottom:18px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
+label.h{display:block;font-weight:650;margin-bottom:8px}
+textarea{width:100%;min-height:220px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);padding:12px;font:15px/1.6 ui-serif,Georgia,serif}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;min-height:40px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:650}
+button:disabled{opacity:.5;cursor:not-allowed}
+.count{color:var(--mute);font-size:.9rem;margin-left:auto}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin:14px 0 0}.bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.summary{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.chip{border-radius:999px;padding:4px 12px;font-size:.9rem;font-weight:600}
+.good{background:var(--good-bg);color:var(--good)}.warn{background:var(--warn-bg);color:var(--warn)}.bad{background:var(--bad-bg);color:var(--bad)}.nf{background:var(--nf-bg);color:var(--nf)}.grey{background:var(--grey-bg);color:var(--grey)}
+.verdict{font-size:1.05rem;margin:0 0 10px}
+.opt{display:flex;align-items:center;gap:8px;font-size:.92rem;color:var(--mute);margin:6px 0 12px}
+.cards{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+.card{border:1px solid var(--line);border-left-width:5px;border-radius:10px;padding:12px 14px;background:var(--card)}
+.card.good{border-left-color:var(--good)}.card.warn{border-left-color:var(--warn)}.card.bad{border-left-color:var(--bad)}.card.nf{border-left-color:var(--nf)}.card.grey{border-left-color:var(--grey)}
+.badge{display:inline-block;font-size:.76rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:4px;padding:2px 8px}
+.raw{margin:8px 0;font:14.5px/1.55 ui-serif,Georgia,serif;overflow-wrap:anywhere}
+.fields{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.f{font-size:.82rem;border-radius:6px;padding:2px 8px;border:1px solid var(--line)}
+.f.ok{color:var(--good);border-color:var(--good)}.f.bad{color:var(--bad);border-color:var(--bad)}.f.partial,.f.near,.f.unclear{color:var(--warn);border-color:var(--warn)}.f.none{color:var(--grey)}
+.reasons{margin:6px 0;padding-left:18px;color:var(--ink);font-size:.93rem}
+.rec{margin-top:8px;padding:10px 12px;background:var(--code);border-radius:8px;font-size:.9rem;overflow-wrap:anywhere}
+.rec b{display:block;color:var(--mute);font-size:.76rem;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
+a{color:var(--accent)}
+details{margin-top:18px}summary{cursor:pointer;font-weight:650}
+details li,details p{color:var(--mute);font-size:.94rem}
+footer{margin-top:26px;color:var(--mute);font-size:.85rem}
+.sr{position:absolute;left:-9999px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Ghostbib</h1>
+  <p class="tag">Paste your reference list. Ghostbib checks every reference against Crossref and shows <em>which fields</em> match a real paper: title, authors, year and DOI.</p>
+  <span class="priv" role="note">&#128274; Each reference is sent to Crossref, a public scholarly database, and nowhere else.</span>
+
+  <section class="panel" aria-labelledby="in-h">
+    <label class="h" id="in-h" for="src">Your references (APA, IEEE, numbered lists or BibTeX)</label>
+    <textarea id="src" spellcheck="false" placeholder="Smith, J., &amp; Lee, K. (2020). Title of the paper. Journal of Things, 12(3), 45-67. https://doi.org/10.1000/xyz&#10;&#10;Paste one reference per line or per paragraph."></textarea>
+    <div class="row">
+      <button class="primary" id="go" type="button">Check references</button>
+      <button id="stop" type="button" disabled>Stop</button>
+      <button id="demo" type="button">Try an example</button>
+      <button id="clear" type="button">Clear</button>
+      <span class="count" id="count" aria-live="polite"></span>
+    </div>
+    <div class="bar" id="bar" hidden><i id="barfill"></i></div>
+  </section>
+
+  <section aria-labelledby="out-h" aria-live="polite">
+    <h2 id="out-h" class="sr">Results</h2>
+    <div id="out"></div>
+  </section>
+
+  <details>
+    <summary>How to read the results, and what Ghostbib cannot tell you</summary>
+    <ul>
+      <li><b>Verified</b>: a real record matches the title, the first author and the year.</li>
+      <li><b>Authors differ</b>: a paper with this title exists, but your first author is not one of its authors. This is the classic AI-made fake: a real title with invented authors.</li>
+      <li><b>Year differs</b>: title and authors match but the record has another date. A typo, or a preprint or republication.</li>
+      <li><b>DOI is a different paper / does not exist</b>: the DOI in your reference points elsewhere or nowhere.</li>
+      <li><b>Not found</b>: nothing matches. It may be invented, <em>or</em> it may be a book, thesis, report, standard or web page that Crossref does not index. Search for those yourself before deciding.</li>
+      <li><b>It proves a paper exists, not that it says what you claim.</b> Read what you cite.</li>
+    </ul>
+  </details>
+  <footer>Data: <a href="https://www.crossref.org/documentation/retrieve-metadata/rest-api/" target="_blank" rel="noopener">Crossref REST API</a>. Matching runs in your browser.</footer>
+</div>
+<script src="src/ghostbib.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>
