@@ -1,0 +1,8 @@
+{
+  "name": "ghostbib",
+  "version": "1.0.0",
+  "description": "Check a reference list against Crossref, field by field.",
+  "private": true,
+  "scripts": { "test": "node --test", "live": "node tools/live-check.js", "serve": "node tools/serve.js" },
+  "license": "MIT"
+}
